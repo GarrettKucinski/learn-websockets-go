@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -22,13 +25,16 @@ type Manager struct {
 	clients Clients
 	sync.RWMutex
 
+	otps RetentionMap
+
 	handlers map[string]EventHandler
 }
 
-func NewManager() *Manager {
+func NewManager(ctx context.Context) *Manager {
 	m := &Manager{
 		clients:  make(Clients),
 		handlers: make(map[string]EventHandler),
+		otps:     NewRetentionMap(ctx, 5*time.Second),
 	}
 
 	m.setupEventHandlers()
@@ -74,6 +80,21 @@ func (m *Manager) serveWs(w http.ResponseWriter, r *http.Request) {
 	//  - one to write messages
 	go client.readMessages()
 	go client.writeMessages()
+}
+
+func loginHandler(w http.ResponseWriter, r *http.Request) error {
+	type userLoginRequest struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+
+	var req userLoginRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return errors.New("username or password is incorrect")
+	}
+
+	return nil
 }
 
 func (m *Manager) addClient(client *Client) {
