@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Websockets with ProgrammingPercy</title>
+    <style type="text/css">
+        .center {
+            text-align: center;
+        }
+        .chatroom-selection {
+            margin: 10px;
+        }
+        .messagearea {
+            width: 500px;
+            height: 300px;
+            overflow-y: scroll;
+            border: 1px solid #000;
+            padding: 10px;
+            margin: 10px;
+        }
+        .messagearea:hover {
+            border: 1px solid #000;
+            padding: 10px;
+        }
+        .messagearea:focus {
+            border: 1px solid #000;
+            padding: 10px;
+        }
+        .messagearea:active {
+            border: 1px solid #000;
+            padding: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="center">
+        <h1>Amazing Chat Application</h1>
+        <h3 id="chat-header">Currently in chat: general</h3>
+        <form id="chatroom-selection">
+            <label for="chatroom">Chatroom:</label>
+            <input type="text" id="chatroom" name="chatroom">
+            <input type="submit" value="Change chatroom">
+        </form>
+
+        <br />
+
+        <textarea class="messagearea" id="chat-messages" readonly id="chatmessages" name="chatmessages" cols="50" rows="4"></textarea>
+
+        <br />
+
+        <form action="" id="chatroom-message">
+            <label for="message">Message:</label><input type="text" name="message" id="message"><input type="submit" value="Send Message">
+        </form>
+    </div>
+
+    <script>
+        const selectedChat = "general";
+        class Event {
+            constructor(type, payload) {
+                this.type = type;
+                this.payload = payload;
+            }
+        }
+
+        function routeEvent (event) {
+            if (!event.type) console.error("no type in event");
+
+            const events = new Map([
+                ["new message", () => console.log("new message")]
+                ["default", () => console.error("unsupported event")]
+            ]);
+
+            const handler = events.has(event)
+                ? events.get(event)
+                : events.get("default")
+
+            handler();
+        }
+
+        function sendEvent(eventName, payload) {
+            const event = new Event(eventName, payload);
+
+            conn.send(JSON.)
+        }
+
+        function changeChatroom() {
+            const newChat = document.getElementById("chatroom");
+            if (newChat && newChat.value != selectedChat) {
+                console.log(newChat);
+            }
+
+            return false;
+        }
+
+        function sendMessage() {
+            const newMessage = document.getElementById("message");
+            if (newMessage) {
+                sendEvent("send message", newMessage.value);
+            }
+
+            return false;
+        }
+
+        /**
+         *  Websockets has a few events to be aware of
+         * onclose: which is fired whenever the socket closes
+         * onerror: fires whenever there is an error
+         * onopen: fires whenver the connection is opened 
+         * onmessage: fires whenever there is a message
+         */
+
+        window.onload = function () {
+            document.getElementById("chatroom-selection").onsubmit = changeChatroom;
+            document.getElementById("chatroom-message").onsubmit = sendMessage;
+            if (window["WebSocket"]) {
+                console.log("websockets!");
+                conn = new WebSocket("ws://" + document.location.host + "/ws");
+                conn.onmessage = function(evt) {
+                    const eventData = JSON.parse(evt.data);
+                    const event = Object.assign(new Event, eventData);
+
+                    routeEvent(event);
+                };
+            } else {
+                console.error("browser does not support websockts!");
+            }
+        }
+    </script>
+</body>
+</html>
