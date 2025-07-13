@@ -81,7 +81,7 @@
         function sendEvent(eventName, payload) {
             const event = new Event(eventName, payload);
 
-            conn.send(JSON.)
+            conn.send(JSON.stringify(event))
         }
 
         function changeChatroom() {
