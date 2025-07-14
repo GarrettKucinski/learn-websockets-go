@@ -47,7 +47,34 @@ func (m *Manager) setupEventHandlers() {
 }
 
 func SendMessage(event Event, c *Client) error {
-	fmt.Println(event)
+	var chatEvent SendMessageEvent
+
+	if err := json.Unmarshal(event.Payload, &chatEvent); err != nil {
+		return fmt.Errorf("bad payload in request: %v", err)
+	}
+
+	broadcastMessage := NewMessageEvent{
+		Sent: time.Now(),
+		SendMessageEvent: SendMessageEvent{
+			Message: chatEvent.Message,
+			From:    chatEvent.From,
+		},
+	}
+
+	data, err := json.Marshal(broadcastMessage)
+	if err != nil {
+		return fmt.Errorf("failed to marshall broadcast: %v", err)
+	}
+
+	outgoingEvent := Event{
+		Payload: data,
+		Type:    EventNewMessage,
+	}
+
+	for client := range c.manager.clients {
+		client.egress <- outgoingEvent
+	}
+
 	return nil
 }
 
@@ -63,6 +90,20 @@ func (m *Manager) routeEvent(event Event, c *Client) error {
 }
 
 func (m *Manager) serveWs(w http.ResponseWriter, r *http.Request) {
+	otp := r.URL.Query().Get("otp")
+
+	if otp == "" {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	if !m.otps.VerifyOTP(otp) {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// if they get here they have a valid otp
+	// we allow them to connect via websockets
 	log.Println("New connection")
 	// upgrade regular http connection to websocket
 	conn, err := websocketUpgrader.Upgrade(w, r, nil)
@@ -82,7 +123,7 @@ func (m *Manager) serveWs(w http.ResponseWriter, r *http.Request) {
 	go client.writeMessages()
 }
 
-func loginHandler(w http.ResponseWriter, r *http.Request) error {
+func (m *Manager) loginHandler(w http.ResponseWriter, r *http.Request) {
 	type userLoginRequest struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
@@ -90,11 +131,42 @@ func loginHandler(w http.ResponseWriter, r *http.Request) error {
 
 	var req userLoginRequest
 
+	// read the request body from the http stream
+	// more efficient that json.Marshall which loads the json into
+	// memory first
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		return errors.New("username or password is incorrect")
+		log.Println("username or password is incorrect")
+		return
 	}
 
-	return nil
+	// if our super secure auth passes
+	if req.Password == "password" && req.Username == "gkucinski" {
+		type response struct {
+			OTP string `json:"otp"`
+		}
+
+		// issue a new otp to the user
+		otp := m.otps.NewOTP()
+
+		resp := response{
+			OTP: otp.Key,
+		}
+
+		data, err := json.Marshal(resp)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
+		return
+	}
+
+	// If credentials are wrong:
+	w.WriteHeader(http.StatusUnauthorized)
+	w.Write([]byte(`{"error": "Invalid credentials"}`))
 }
 
 func (m *Manager) addClient(client *Client) {
@@ -120,7 +192,7 @@ func checkOrigin(r *http.Request) bool {
 	// should make the origin configurable through
 	// env vars in real application
 	switch origin {
-	case "http://localhost:8080":
+	case "https://localhost:8080":
 		return true
 	default:
 		return false

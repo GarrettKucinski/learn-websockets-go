@@ -8,25 +8,52 @@ class Event {
     }
 }
 
-function routeEvent(e) {
-    e.preventDefault();
-    if (!e.type) console.error("no type in event");
+class SendMessageEvent {
+    constructor(message, from) {
+        this.message = message;
+        this.from = from;
+    }
+}
+
+class NewMessageEvent extends SendMessageEvent{
+    constructor(message, from, sent) {
+        super(message, from);
+        this.sent = sent;
+    }
+}
+
+function routeEvent(wsEvent) {
+    if (!wsEvent.type) console.error("no type in event");
 
     const events = new Map([
-        ["new message", () => console.log("new message")]
-        ["default", (e) => console.error("unsupported event", e.type)]
+        ["new message", () => {
+            const messageEvent = Object.assign(new NewMessageEvent, wsEvent.payload);
+            appendChatMessage(messageEvent);
+        }],
+        ["default", () => console.error("unsupported event", wsEvent.type)]
     ]);
 
-    const handler = events.has(e)
-        ? events.get(e)
-        : events.get("default")
+    const handler = events.get(wsEvent.type) ?? events.get("default");
 
-    handler(e);
+    handler(wsEvent);
+}
+
+function appendChatMessage (messageEvent) {
+    const { sent, from, message } = messageEvent ?? {};
+
+    const sentTime = new Date(sent ?? Date.now());
+    const formattedMessage = `${sentTime.toLocaleString()} ${from}: ${message}`
+    const messageWindow = document.getElementById("chat-messages");
+    console.log(messageWindow, messageEvent.payload);
+
+    messageWindow.innerHTML = messageWindow.innerHTML + "\n" + formattedMessage;
+    messageWindow.scrollTop = messageWindow.scrollHeight;
 }
 
 function sendEvent(eventName, payload) {
     const event = new Event(eventName, payload);
 
+    console.log("connection", conn)
     conn.send(JSON.stringify(event))
 }
 
@@ -44,50 +71,60 @@ function sendMessage(e) {
 
     const newMessage = document.getElementById("message");
     if (newMessage) {
-        sendEvent("send message", newMessage.value);
+        const outgoingMessage = new SendMessageEvent(newMessage.value, "garrett");
+        sendEvent("send message", outgoingMessage);
     }
 }
 
 function connectWebsocket(otp) {
-    if (!window.webSocket) {
+    if (!window.WebSocket) {
         console.error("browser does not support websockts!");
         return;
     }
 
-    console.log("websockets!");
-    conn = new WebSocket(`ws://${document.location.host}/ws?otp=${otp}`);
-    conn.onopen = function (evt) {
+    conn = new WebSocket(`wss://${document.location.host}/ws?otp=${otp}`);
+    conn.onopen = function () {
         document.getElementById("connection-header").innerHTML = "Websocket Connected!";
-    }
+    };
     conn.onclose = function () { 
         document.getElementById("connection-header").innerHTML = "Websocket Disconnected!";
-    }
+    };
+    conn.onerror = function (evt) {
+        console.error("WebSocket error", evt);
+    };
     conn.onmessage = function (evt) {
         const eventData = JSON.parse(evt.data);
         const event = Object.assign(new Event, eventData);
 
         routeEvent(event);
     };
+
+    console.log(conn);
 }
 
-function login() {
+async function login(e) {
+    e.preventDefault();
+
     const username = document.getElementById("username").value;
     const password = document.getElementById("password").value;
 
-    fetch("/login", {
-        method: "post",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-        mode: "cors",
-    }).then(res => {
-        if (res.ok) return res.json();
-        throw "unauthorized";
-    }).then(data => {
-        connectWebsocket(data.otp);
-    }).catch(error => {
+    try {
+        const res = await fetch("/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+            mode: "cors",
+        });
+
+        const response = await res.json();
+
+        if (!res.ok) throw "unauthorized";
+
+        connectWebsocket(response.otp);
+    } catch(error) {
         console.error(error);
         return false;
-    });
+    }
 }
 
 /**
